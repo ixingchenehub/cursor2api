@@ -1,0 +1,29 @@
+# Git 相关
+.git
+.gitignore
+.github
+
+# 开发文件
+.env
+*.md
+LICENSE
+
+# 构建产物
+bin/
+*.exe
+*.out
+*.test
+
+# IDE 配置
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 测试文件
+*_test.go
+testdata/
+
+# 文档
+docs/
