@@ -8,6 +8,23 @@
 
 ---
 
+## 📌 项目来源
+
+本项目基于 [gopkg-dev/cursor2api](https://github.com/gopkg-dev/cursor2api) 进行维护和优化。
+
+### 🔧 Fork 优化内容
+
+本Fork在原项目基础上进行了以下改进:
+
+- ✅ **安全增强** - 完善.gitignore规则,防止敏感配置文件(.env)泄露到版本控制
+- ✅ **版本控制优化** - 清理Git历史中的敏感文件,确保远程仓库安全
+- ✅ **跨平台兼容性** - 统一文件编码(UTF-8)和行尾符(LF)标准
+- ✅ **文档完善** - 增强README说明,添加原始仓库引用和修复记录
+
+> **致谢:** 感谢原作者 [@gopkg-dev](https://github.com/gopkg-dev) 的优秀工作!
+
+---
+
 ## ✨ 项目简介
 
 将 Cursor AI 能力封装为标准 OpenAI API 格式的高性能代理服务。
