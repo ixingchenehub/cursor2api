@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>浏览器指纹生成器 - 简化版</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+            text-align: center;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            flex: 1;
+            min-width: 150px;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-generate {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-generate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-copy {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-copy:hover {
+            background: #059669;
+            transform: translateY(-2px);
+        }
+
+        .btn-copy:disabled {
+            background: #d1d5db;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .output-section {
+            background: #f9fafb;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .output-label {
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .output-content {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+            color: #1f2937;
+        }
+
+        .json-output {
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            display: none;
+            align-items: center;
+            gap: 10px;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .icon {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+
+        .fingerprint-info {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #1e40af;
+        }
+
+        .format-example {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #92400e;
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+            }
+
+            button {
+                min-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 浏览器指纹生成器</h1>
+        <p class="subtitle">生成与后端完全兼容的浏览器指纹</p>
+
+        <div class="action-buttons">
+            <button class="btn-generate" onclick="generateFingerprint()">
+                <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+                </svg>
+                生成指纹
+            </button>
+            <button class="btn-copy" onclick="copyToClipboard()" disabled id="copyBtn">
+                <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                </svg>
+                复制 Base64
+            </button>
+        </div>
+
+        <div class="output-section">
+            <div class="output-label">
+                <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                </svg>
+                Base64 编码 (用于 .env 配置)
+            </div>
+            <div class="output-content" id="base64Output">点击"生成指纹"按钮创建指纹...</div>
+        </div>
+
+        <div class="output-section">
+            <div class="output-label">
+                <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                </svg>
+                指纹详情 (JSON)
+            </div>
+            <div class="output-content json-output" id="jsonOutput">等待生成指纹...</div>
+        </div>
+
+        <div class="format-example">
+            <strong>📋 标准格式:</strong> 生成的指纹将严格遵循以下 3 字段格式:
+            <pre style="margin-top: 10px; font-size: 12px; color: #78350f;">
+{
+  "UNMASKED_VENDOR_WEBGL": "Google Inc. (Intel)",
+  "UNMASKED_RENDERER_WEBGL": "ANGLE (Intel, Intel(R) UHD Graphics...)",
+  "userAgent": "Mozilla/5.0 ..."
+}</pre>
+        </div>
+
+        <div class="fingerprint-info">
+            <strong>💡 使用说明:</strong> 复制 Base64 字符串并将其粘贴到你的 <code>.env</code> 文件中,作为 <code>CURSOR_FP</code> 的值。
+            该格式与后端 <code>main.py</code> 中的 <code>FP.get()</code> 调用完全兼容。
+        </div>
+    </div>
+
+    <div class="notification" id="notification">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+        </svg>
+        <span id="notificationText">已复制到剪贴板!</span>
+    </div>
+
+    <script>
+        // Global state
+        let currentFingerprint = null;
+
+        // Generate fingerprint - compatible with backend format
+        function generateFingerprint() {
+            const fingerprint = getBrowserFingerprint();
+            currentFingerprint = fingerprint;
+            
+            // Display results
+            const jsonOutput = JSON.stringify(fingerprint, null, 2);
+            document.getElementById('jsonOutput').textContent = jsonOutput;
+            
+            const base64Output = btoa(JSON.stringify(fingerprint));
+            document.getElementById('base64Output').textContent = base64Output;
+            
+            document.getElementById('copyBtn').disabled = false;
+        }
+
+        // Get browser fingerprint - EXACT format matching user's script
+        function getBrowserFingerprint() {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+
+            let unmaskedVendor = '';
+            let unmaskedRenderer = '';
+
+            if (gl) {
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                if (debugInfo) {
+                    unmaskedVendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || '';
+                    unmaskedRenderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '';
+                }
+            }
+
+            // CRITICAL: Return exact 3-field structure matching user's script
+            return {
+                "UNMASKED_VENDOR_WEBGL": unmaskedVendor,
+                "UNMASKED_RENDERER_WEBGL": unmaskedRenderer,
+                "userAgent": navigator.userAgent
+            };
+        }
+
+        // Copy to clipboard
+        function copyToClipboard() {
+            const base64Text = document.getElementById('base64Output').textContent;
+            
+            navigator.clipboard.writeText(base64Text).then(() => {
+                showNotification('已复制到剪贴板!');
+            }).catch(() => {
+                // Fallback method
+                const textarea = document.createElement('textarea');
+                textarea.value = base64Text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showNotification('已复制到剪贴板!');
+            });
+        }
+
+        // Show notification
+        function showNotification(message) {
+            const notification = document.getElementById('notification');
+            const notificationText = document.getElementById('notificationText');
+            notificationText.textContent = message;
+            notification.style.display = 'flex';
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

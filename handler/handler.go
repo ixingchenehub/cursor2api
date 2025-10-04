@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"github.com/gopkg-dev/cursor2api/config"
-	"github.com/gopkg-dev/cursor2api/models"
-	"github.com/gopkg-dev/cursor2api/service"
-	"github.com/gopkg-dev/cursor2api/utils"
+	"cursor2api/config"
+	"cursor2api/models"
+	"cursor2api/service"
+	"cursor2api/utils"
 )
 
 // APIHandler API 处理器

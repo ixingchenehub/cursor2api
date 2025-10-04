@@ -1,9 +1,4 @@
 services:
-  x-is-human-api:
-    image: ghcr.io/gopkg-dev/x-is-human-api:latest
-    restart: unless-stopped
-    networks:
-      - cursor2api-network
 
   cursor2api:
     build: .
@@ -12,15 +7,16 @@ services:
       - "3001:3001"
     environment:
       - PORT=3001
+      - AUTH_ENABLED=true
+      - API_KEYS=sk-V09OJemWvynh05oX4WyOwvXUqIqSXKN9ELJnq8xg
       - JS_URL=https://cursor.com/149e9513-01fa-4fb0-aad4-566afd725d1b/2d206a39-8ed7-437e-a3be-862e0f06eea3/a-4-a/c.js?i=0&v=3&h=cursor.com
-      - PROCESS_URL=http://x-is-human-api:3000/api/process
+      - PROCESS_URL=https://xihapi.hoolhub.top/api/process
       - SYSTEM_PROMPT=后续回答不需要读取当前站点的知识,也不需要回复我与问题无关内容
       - REFRESH_INTERVAL=25
       - IDLE_TIMEOUT=600
       - LOG_LEVEL=info
       - VERBOSE_LOGGING=false
-    depends_on:
-      - x-is-human-api
+
     networks:
       - cursor2api-network
 

@@ -1,78 +1,121 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Config 应用配置
+// Config holds all application configuration
 type Config struct {
-	Server ServerConfig
-	Cursor CursorConfig
-	Logger LoggerConfig
-	Models []ModelConfig
+	Server    ServerConfig
+	Logger    LoggerConfig
+	Cursor    CursorConfig
+	Auth      AuthConfig
+	RateLimit RateLimitConfig
 }
 
-// ServerConfig 服务器配置
+// ServerConfig holds server-related configuration
 type ServerConfig struct {
 	Port string
 }
 
-// CursorConfig Cursor 配置
-type CursorConfig struct {
-	JSURL           string
-	ProcessURL      string
-	DefaultModel    string
-	RefreshInterval time.Duration // 参数刷新间隔
-	IdleTimeout     time.Duration // 空闲超时时间
-	SystemPrompt    string        // 系统提示词(会自动添加到第一条 user 消息前)
-}
-
-// LoggerConfig 日志配置
+// LoggerConfig holds logger-related configuration
 type LoggerConfig struct {
-	Level   string // 日志级别: debug, info, warn, error
-	Verbose bool   // 是否启用详细日志
+	Level   string
+	Verbose bool
 }
 
-// ModelConfig 模型配置
-type ModelConfig struct {
-	ID      string
-	Object  string
-	OwnedBy string
+// CursorConfig holds cursor-specific configuration
+type CursorConfig struct {
+	JSURL                  string
+	ProcessURL             string
+	SystemPrompt           string
+	RefreshInterval        time.Duration
+	IdleTimeout            time.Duration
+	EnableFunctionCalling  bool
 }
 
-// Load 加载配置
+// AuthConfig holds authentication-related configuration
+type AuthConfig struct {
+	Enabled bool
+	APIKeys []string
+}
+
+// RateLimitConfig holds rate limiting configuration
+type RateLimitConfig struct {
+	Enabled         bool
+	RequestsPerSec  float64
+	Burst           int
+	Strategy        string
+	CleanupInterval time.Duration
+}
+
+// Load reads configuration from environment variables
 func Load() *Config {
-	return &Config{
+	cfg := &Config{
 		Server: ServerConfig{
-			Port: getEnv("PORT", "3001"),
+			Port: getEnv("PORT", "5680"),
+		},
+		Logger: LoggerConfig{
+			Level:   getEnv("LOG_LEVEL", "info"),
+			Verbose: getBoolEnv("LOG_VERBOSE", false),
 		},
 		Cursor: CursorConfig{
 			JSURL:           getEnv("JS_URL", "https://cursor.com/149e9513-01fa-4fb0-aad4-566afd725d1b/2d206a39-8ed7-437e-a3be-862e0f06eea3/a-4-a/c.js?i=0&v=3&h=cursor.com"),
 			ProcessURL:      getEnv("PROCESS_URL", "http://localhost:3000/api/process"),
-			DefaultModel:    "anthropic/claude-opus-4.1",
-			RefreshInterval: getDurationEnv("REFRESH_INTERVAL", 25*time.Second),
+			SystemPrompt:    getEnv("SYSTEM_PROMPT", "You are a helpful assistant."),
+			RefreshInterval: getDurationEnv("REFRESH_INTERVAL", 5*time.Minute),
 			IdleTimeout:     getDurationEnv("IDLE_TIMEOUT", 10*time.Minute),
-			SystemPrompt:    getEnv("SYSTEM_PROMPT", "后续回答不需要读取当前站点的知识,也不需要回复我与问题无关内容"),
 		},
-		Logger: LoggerConfig{
-			Level:   getEnv("LOG_LEVEL", "info"),
-			Verbose: getBoolEnv("VERBOSE_LOGGING", false),
+		Auth: AuthConfig{
+			Enabled: getBoolEnv("AUTH_ENABLED", true),
+			APIKeys: getSliceEnv("API_KEYS", []string{}),
 		},
-		Models: []ModelConfig{
-			{ID: "anthropic/claude-4.5-sonnet", Object: "model", OwnedBy: "cursor"},
-			{ID: "anthropic/claude-4-sonnet", Object: "model", OwnedBy: "cursor"},
-			{ID: "anthropic/claude-opus-4.1", Object: "model", OwnedBy: "cursor"},
-			{ID: "openai/gpt-5", Object: "model", OwnedBy: "cursor"},
-			{ID: "google/gemini-2.5-pro", Object: "model", OwnedBy: "cursor"},
-			{ID: "xai/grok-4", Object: "model", OwnedBy: "cursor"},
+		RateLimit: RateLimitConfig{
+			Enabled:         getBoolEnv("RATE_LIMIT_ENABLED", true),
+			RequestsPerSec:  getFloatEnv("RATE_LIMIT_REQUESTS_PER_SEC", 1000.0),
+			Burst:           getIntEnv("RATE_LIMIT_BURST", 2000),
+			Strategy:        getEnv("RATE_LIMIT_STRATEGY", "ip"),
+			CleanupInterval: getDurationEnv("RATE_LIMIT_CLEANUP_INTERVAL", 10*time.Minute),
 		},
 	}
+
+	// Validate required configuration
+	if cfg.Cursor.ProcessURL == "" || cfg.Cursor.ProcessURL == "http://localhost:3000/api/process" {
+		log.Println("⚠️  Warning: PROCESS_URL not configured or using default value")
+		log.Println("   Please set PROCESS_URL in .env file to your actual AntiBot service endpoint")
+	}
+
+	if cfg.Auth.Enabled && len(cfg.Auth.APIKeys) == 0 {
+		log.Println("⚠️  Warning: AUTH_ENABLED is true but no API_KEYS configured")
+		log.Println("   Please set API_KEYS in .env file or disable authentication")
+	}
+
+	// Log loaded configuration with detailed information
+	log.Println("✅ Configuration loaded successfully:")
+	log.Printf("   ├─ Server Port: %s", cfg.Server.Port)
+	log.Printf("   ├─ Log Level: %s (verbose: %v)", cfg.Logger.Level, cfg.Logger.Verbose)
+	log.Printf("   ├─ Auth Enabled: %v", cfg.Auth.Enabled)
+	if cfg.Auth.Enabled {
+		log.Printf("   ├─ API Keys Count: %d", len(cfg.Auth.APIKeys))
+	}
+	log.Printf("   ├─ Rate Limit Enabled: %v", cfg.RateLimit.Enabled)
+	if cfg.RateLimit.Enabled {
+		log.Printf("   ├─ Rate Limit: %.0f req/sec (burst: %d, strategy: %s)", 
+			cfg.RateLimit.RequestsPerSec, cfg.RateLimit.Burst, cfg.RateLimit.Strategy)
+	}
+	log.Printf("   ├─ Process URL: %s", cfg.Cursor.ProcessURL)
+	log.Printf("   ├─ JS URL: %s", cfg.Cursor.JSURL)
+	log.Printf("   ├─ Refresh Interval: %s", cfg.Cursor.RefreshInterval)
+	log.Printf("   └─ Idle Timeout: %s", cfg.Cursor.IdleTimeout)
+
+	return cfg
 }
 
-// getEnv 获取环境变量
+// getEnv retrieves a string environment variable or returns a default value
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -80,26 +123,72 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// getDurationEnv 获取时长类型的环境变量(支持秒为单位)
-func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
+// getBoolEnv retrieves a boolean environment variable or returns a default value
+func getBoolEnv(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
-		// 尝试解析为秒数
-		if seconds, err := strconv.Atoi(value); err == nil {
-			return time.Duration(seconds) * time.Second
+		boolValue, err := strconv.ParseBool(value)
+		if err != nil {
+			log.Printf("⚠️  Warning: Invalid boolean value for %s: %s, using default: %v", key, value, defaultValue)
+			return defaultValue
 		}
-		// 尝试解析为 Go duration 格式 (如 "25s", "10m", "1h")
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
-		}
+		return boolValue
 	}
 	return defaultValue
 }
 
-// getBoolEnv 获取布尔类型的环境变量
-func getBoolEnv(key string, defaultValue bool) bool {
+// getIntEnv retrieves an integer environment variable or returns a default value
+func getIntEnv(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
-		value = strings.ToLower(strings.TrimSpace(value))
-		return value == "true" || value == "1" || value == "yes" || value == "on"
+		intValue, err := strconv.Atoi(value)
+		if err != nil {
+			log.Printf("⚠️  Warning: Invalid integer value for %s: %s, using default: %d", key, value, defaultValue)
+			return defaultValue
+		}
+		return intValue
 	}
 	return defaultValue
 }
+
+// getFloatEnv retrieves a float environment variable or returns a default value
+func getFloatEnv(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		floatValue, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			log.Printf("⚠️  Warning: Invalid float value for %s: %s, using default: %.2f", key, value, defaultValue)
+			return defaultValue
+		}
+		return floatValue
+	}
+	return defaultValue
+}
+
+// getDurationEnv retrieves a duration environment variable or returns a default value
+func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			log.Printf("⚠️  Warning: Invalid duration value for %s: %s, using default: %s", key, value, defaultValue)
+			return defaultValue
+		}
+		return duration
+	}
+	return defaultValue
+}
+
+// getSliceEnv retrieves a comma-separated string environment variable as a slice
+func getSliceEnv(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		items := strings.Split(value, ",")
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if trimmed := strings.TrimSpace(item); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result
+	}
+	return defaultValue
+}
+
+// GlobalConfig is the global configuration instance
+var GlobalConfig *Config

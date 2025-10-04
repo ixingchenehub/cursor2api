@@ -4,22 +4,53 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gopkg-dev/cursor2api/types"
+	"cursor2api/types"
 )
 
-// HandleModels 处理 /v1/models 请求
+// HandleModels handles /v1/models request
+// Returns the list of available Cursor AI models
 func (h *APIHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
-	// 从配置读取模型列表
-	models := make([]types.Model, len(h.config.Models))
+	// Return fixed list of Cursor AI models
+	// These are the standard models supported by Cursor
 	created := time.Now().Unix()
 
-	for i, modelCfg := range h.config.Models {
-		models[i] = types.Model{
-			ID:      modelCfg.ID,
-			Object:  modelCfg.Object,
-			Created: created,
-			OwnedBy: modelCfg.OwnedBy,
-		}
+	models := []types.Model{
+	{
+		ID:      "anthropic/claude-4.5-sonnet",
+		Object:  "model",
+		Created: created,
+		OwnedBy: "cursor",
+	},
+	{
+		ID:      "anthropic/claude-4-sonnet",
+		Object:  "model",
+		Created: created,
+		OwnedBy: "cursor",
+	},
+	{
+		ID:      "anthropic/claude-opus-4.1",
+		Object:  "model",
+		Created: created,
+		OwnedBy: "cursor",
+	},
+	{
+		ID:      "openai/gpt-5",
+		Object:  "model",
+		Created: created,
+		OwnedBy: "cursor",
+	},
+	{
+		ID:      "google/gemini-2.5-pro",
+		Object:  "model",
+		Created: created,
+		OwnedBy: "cursor",
+	},
+	{
+		ID:      "xai/grok-4",
+		Object:  "model",
+		Created: created,
+		OwnedBy: "cursor",
+	},
 	}
 
 	response := types.ModelList{
@@ -30,7 +61,8 @@ func (h *APIHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-// HandleHealth 处理 /health 请求
+// HandleHealth handles /health request
+// Returns service health status and statistics
 func (h *APIHandler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	stats := h.manager.GetStats()
 

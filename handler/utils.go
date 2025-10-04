@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gopkg-dev/cursor2api/types"
+	"cursor2api/types"
 )
 
 // writeJSON 写入 JSON 响应

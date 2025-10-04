@@ -53,9 +53,9 @@ func (m *AntiBotManager) Stop() {
 
 // GetXIsHuman 获取当前有效的 x-is-human 参数
 func (m *AntiBotManager) GetXIsHuman() (string, error) {
-	m.mu.RLock()
+	m.stats.TotalRequests.Add(1)
 
-	m.stats.TotalRequests++
+	m.mu.RLock()
 
 	// 更新最后访问时间
 	m.lastAccessTime = time.Now()
@@ -84,7 +84,7 @@ func (m *AntiBotManager) GetXIsHuman() (string, error) {
 		if time.Since(m.lastUpdateTime) > 28*time.Second {
 			log.Println("⚠️ 参数即将过期，强制刷新")
 			if err := m.refreshParametersUnsafe(); err != nil {
-				m.stats.FailedRequests++
+				m.stats.FailedRequests.Add(1)
 				m.stats.LastError = err
 				m.mu.Unlock()
 				return "", fmt.Errorf("强制刷新参数失败: %w", err)
@@ -95,15 +95,16 @@ func (m *AntiBotManager) GetXIsHuman() (string, error) {
 	}
 
 	if m.currentXIsHuman == "" {
-		m.stats.FailedRequests++
 		m.mu.RUnlock()
+		m.stats.FailedRequests.Add(1)
 		return "", fmt.Errorf("参数未初始化")
 	}
 
-	m.stats.SuccessRequests++
-	m.stats.CacheHits++
 	result := m.currentXIsHuman
 	m.mu.RUnlock()
+	
+	m.stats.SuccessRequests.Add(1)
+	m.stats.CacheHits.Add(1)
 	return result, nil
 }
 
@@ -117,27 +118,34 @@ func (m *AntiBotManager) IsHealthy() bool {
 // GetStats 获取统计信息
 func (m *AntiBotManager) GetStats() map[string]interface{} {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	lastUpdateTime := m.lastUpdateTime
+	lastAccessTime := m.lastAccessTime
+	refreshInterval := m.refreshInterval
+	idleTimeout := m.idleTimeout
+	refreshActive := m.refreshActive
+	hasValidParameter := m.currentXIsHuman != ""
+	lastError := m.stats.LastError
+	m.mu.RUnlock()
 
-	idleTime := time.Since(m.lastAccessTime)
+	idleTime := time.Since(lastAccessTime)
 
 	stats := map[string]interface{}{
-		"totalRequests":     m.stats.TotalRequests,
-		"successRequests":   m.stats.SuccessRequests,
-		"failedRequests":    m.stats.FailedRequests,
-		"cacheHits":         m.stats.CacheHits,
-		"lastUpdateTime":    m.lastUpdateTime,
-		"lastAccessTime":    m.lastAccessTime,
-		"parameterAge":      time.Since(m.lastUpdateTime),
+		"totalRequests":     m.stats.TotalRequests.Load(),
+		"successRequests":   m.stats.SuccessRequests.Load(),
+		"failedRequests":    m.stats.FailedRequests.Load(),
+		"cacheHits":         m.stats.CacheHits.Load(),
+		"lastUpdateTime":    lastUpdateTime,
+		"lastAccessTime":    lastAccessTime,
+		"parameterAge":      time.Since(lastUpdateTime),
 		"idleTime":          idleTime,
-		"refreshInterval":   m.refreshInterval,
-		"idleTimeout":       m.idleTimeout,
-		"refreshActive":     m.refreshActive,
-		"hasValidParameter": m.currentXIsHuman != "",
+		"refreshInterval":   refreshInterval,
+		"idleTimeout":       idleTimeout,
+		"refreshActive":     refreshActive,
+		"hasValidParameter": hasValidParameter,
 	}
 
-	if m.stats.LastError != nil {
-		stats["lastError"] = m.stats.LastError.Error()
+	if lastError != nil {
+		stats["lastError"] = lastError.Error()
 	}
 
 	return stats

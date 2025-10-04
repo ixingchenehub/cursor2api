@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/gopkg-dev/cursor2api/types"
+	"cursor2api/types"
 )
 
 // autoRefreshLoop 自动刷新循环(支持智能休眠)
@@ -108,7 +108,7 @@ func (m *AntiBotManager) refreshParametersUnsafe() error {
 		return nil
 	}
 
-	m.stats.FailedRequests++
+	m.stats.FailedRequests.Add(1)
 	return fmt.Errorf("重试 %d 次后仍然失败: %w", m.maxRetries, lastErr)
 }
 

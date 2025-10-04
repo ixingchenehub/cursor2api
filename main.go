@@ -1,86 +1,142 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/gopkg-dev/cursor2api/config"
-	"github.com/gopkg-dev/cursor2api/handler"
-	"github.com/gopkg-dev/cursor2api/logger"
-	"github.com/gopkg-dev/cursor2api/middleware"
-	"github.com/gopkg-dev/cursor2api/models"
-	"github.com/gopkg-dev/cursor2api/service"
+	"cursor2api/config"
+	"cursor2api/handler"
+	"cursor2api/logger"
+	"cursor2api/middleware"
+	"cursor2api/models"
+	"cursor2api/service"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	// 加载配置
+	// Load .env file at the very beginning
+	if err := godotenv.Load(); err != nil {
+		log.Printf("⚠️  Warning: .env file not found or cannot be loaded: %v", err)
+		log.Println("ℹ️  Will use system environment variables or default values")
+	} else {
+		log.Println("✅ Successfully loaded .env file")
+	}
+
+	// Load configuration
 	cfg := config.Load()
+	
+	// Set global config for other packages to access
+	config.GlobalConfig = cfg
 
-	// 初始化日志系统
+	// Initialize logger
 	logger.Init(cfg.Logger.Level, cfg.Logger.Verbose)
+	
+	// Log startup information with emoji for better readability
+	logger.Info("🚀 Starting cursor2api server")
+	logger.Info("📋 Configuration loaded:")
+	logger.Info("   ├─ Server Port: %s", cfg.Server.Port)
+	logger.Info("   ├─ Log Level: %s", cfg.Logger.Level)
+	logger.Info("   ├─ Auth Enabled: %v", cfg.Auth.Enabled)
+	logger.Info("   ├─ Rate Limit Enabled: %v", cfg.RateLimit.Enabled)
+	if cfg.RateLimit.Enabled {
+		logger.Info("   ├─ Rate Limit: %.0f req/sec (burst: %d)", cfg.RateLimit.RequestsPerSec, cfg.RateLimit.Burst)
+	}
+	logger.Info("   └─ Process URL: %s", cfg.Cursor.ProcessURL)
 
-	logger.Info("========================================")
-	logger.Info(" Cursor2API - Go Implementation")
-	logger.Info(" OpenAI-compatible Cursor API Service")
-	logger.Info("========================================")
-
-	// 创建 AntiBot 管理器
-	logger.Info("🔧 初始化 AntiBot 管理器...")
-	manager := models.NewAntiBotManager(
+	// Initialize AntiBot Manager
+	antiBotManager := models.NewAntiBotManager(
 		cfg.Cursor.JSURL,
 		cfg.Cursor.ProcessURL,
 		cfg.Cursor.RefreshInterval,
 		cfg.Cursor.IdleTimeout,
 	)
 
-	// 启动管理器
-	if err := manager.Start(); err != nil {
-		logger.Fatal("❌ 启动管理器失败: %v", err)
+	// Start AntiBot Manager
+	logger.Info("🔧 Initializing AntiBot Manager...")
+	if err := antiBotManager.Start(); err != nil {
+		logger.Error("❌ Failed to start AntiBot manager | error=%v", err)
+		os.Exit(1)
 	}
-	logger.Info("✅ AntiBot 管理器启动成功")
+	defer antiBotManager.Stop()
+	logger.Info("✅ AntiBot Manager started successfully")
 
-	// 创建服务和处理器
-	cursorService := service.NewCursorService(manager, cfg.Cursor.SystemPrompt)
-	apiHandler := handler.NewAPIHandler(cursorService, manager, cfg)
+	// Initialize Cursor Service
+	cursorService := service.NewCursorService(antiBotManager, cfg.Cursor.SystemPrompt)
 
-	// 设置路由
+	// Initialize API Handler
+	apiHandler := handler.NewAPIHandler(cursorService, antiBotManager, cfg)
+
+	// Initialize API key authentication middleware
+	authMiddleware := middleware.NewAPIKeyAuth(cfg.Auth.APIKeys, cfg.Auth.Enabled)
+
+	// Initialize rate limiter middleware
+	rateLimiter := middleware.NewRateLimiter(
+		cfg.RateLimit.RequestsPerSec,
+		cfg.RateLimit.Burst,
+		cfg.RateLimit.Strategy,
+		cfg.RateLimit.Enabled,
+		cfg.RateLimit.CleanupInterval,
+	)
+
+	// Setup HTTP router
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/chat/completions", apiHandler.HandleChatCompletions)
-	mux.HandleFunc("/v1/models", apiHandler.HandleModels)
+
+	// Health check endpoint (no authentication required)
 	mux.HandleFunc("/health", apiHandler.HandleHealth)
 
-	// 应用中间件
-	handlerWithMiddleware := middleware.CORS(mux)
+	// OpenAI-compatible endpoints (authentication required)
+	mux.HandleFunc("/v1/models", apiHandler.HandleModels)
+	mux.HandleFunc("/v1/chat/completions", apiHandler.HandleChatCompletions)
 
-	// 创建服务器
+	// Apply middleware chain: CORS -> RateLimit -> Auth -> Router
+	handlerChain := middleware.CORS(rateLimiter.Middleware(authMiddleware.Middleware(mux)))
+
+	// Create HTTP server
 	server := &http.Server{
-		Addr:    ":" + cfg.Server.Port,
-		Handler: handlerWithMiddleware,
+		Addr:         fmt.Sprintf(":%s", cfg.Server.Port),
+		Handler:      handlerChain,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	// 监听系统信号
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
+	// Start server in a goroutine for graceful shutdown
 	go func() {
-		<-sigChan
-		logger.Info("\n🛑 收到关闭信号，正在清理资源...")
-		manager.Stop()
-		os.Exit(0)
+		logger.Info("🌐 Server listening on %s", server.Addr)
+		logger.Info("📡 API Endpoints:")
+		logger.Info("   ├─ GET  /health")
+		logger.Info("   ├─ GET  /v1/models")
+		logger.Info("   └─ POST /v1/chat/completions")
+		logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		logger.Info("✨ Server is ready to accept requests!")
+		
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("❌ Server failed | error=%v", err)
+			os.Exit(1)
+		}
 	}()
 
-	// 打印服务信息
-	logger.Info("========================================")
-	logger.Info("✨ 服务已启动，监听端口: %s", cfg.Server.Port)
-	logger.Info("📊 Health check: http://localhost:%s/health", cfg.Server.Port)
-	logger.Info("🤖 API endpoint: http://localhost:%s/v1/chat/completions", cfg.Server.Port)
-	logger.Info("📋 Model list: http://localhost:%s/v1/models", cfg.Server.Port)
-	logger.Info("========================================")
+	// Wait for interrupt signal to gracefully shutdown the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
 
-	// 启动 HTTP 服务器
-	if err := server.ListenAndServe(); err != nil {
-		logger.Fatal("❌ 服务器启动失败: %v", err)
+	logger.Info("🛑 Shutdown signal received, gracefully shutting down...")
+
+	// Create a deadline for shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Attempt graceful shutdown
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("⚠️  Server forced to shutdown: %v", err)
 	}
+
+	logger.Info("👋 Server exited gracefully")
 }

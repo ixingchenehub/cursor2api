@@ -1,4 +1,31 @@
+# IDE and Editor configurations
 .idea
 .vscode
 .claude
+
+# Build artifacts and executables
 bin/
+cursor2api
+*.exe
+*.out
+coverage.out
+
+# Environment and sensitive files
+.env
+.env.local
+.env.*.local
+
+# OS generated files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Go specific
+vendor/
+*.test
+*.prof
+
+# Logs
+*.log

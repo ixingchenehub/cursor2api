@@ -1,133 +1,241 @@
 package utils
 
 import (
+	"cursor2api/config"
+	"cursor2api/logger"
+	"cursor2api/types"
 	"encoding/json"
 	"fmt"
-	"time"
-
-	"github.com/gopkg-dev/cursor2api/types"
 )
 
-// MessageConverter 消息格式转换器
+// MessageConverter handles OpenAI to Cursor message conversion
 type MessageConverter struct {
-	systemPrompt string // 系统提示词
+	systemPrompt string
 }
 
-// NewMessageConverter 创建消息转换器
+// NewMessageConverter creates a new message converter
 func NewMessageConverter(systemPrompt string) *MessageConverter {
 	return &MessageConverter{
 		systemPrompt: systemPrompt,
 	}
 }
 
-// OpenAIToCursorMessages 将 OpenAI 格式的消息数组转换为 Cursor 格式
-func (mc *MessageConverter) OpenAIToCursorMessages(messages []types.ChatMessage, conversationID string) []map[string]any {
-	cursorMessages := make([]map[string]any, 0, len(messages))
-
-	// 使用 conversationID 作为消息 ID 的基础,如果没有则使用时间戳
-	baseID := conversationID
-	if baseID == "" {
-		baseID = fmt.Sprintf("chatcmpl-%d", time.Now().UnixMilli())
+// BuildCursorRequest builds a Cursor API request body
+func (mc *MessageConverter) BuildCursorRequest(messages []types.ChatMessage, model string, conversationID string, tools []types.Tool) string {
+	cursorReq, err := ConvertOpenAIToCursorRequest(&types.ChatCompletionRequest{
+		Messages: messages,
+		Model:    model,
+		Tools:    tools,
+	})
+	if err != nil {
+		logger.Error("Failed to convert request: %v", err)
+		return ""
 	}
 
-	for i, msg := range messages {
-		// 处理 system 消息 - 拼接到第一条 user 消息前面
-		if msg.Role == "system" {
-			continue // 稍后处理
-		}
+	requestBody, err := json.Marshal(cursorReq)
+	if err != nil {
+		logger.Error("Failed to marshal request: %v", err)
+		return ""
+	}
 
-		content := msg.Content
+	return string(requestBody)
+}
 
-		// 如果是第一条 user 消息,添加系统提示词
-		if msg.Role == "user" && i == 0 && mc.systemPrompt != "" {
-			// 检查是否存在 system 消息
-			hasSystem := false
-			for _, m := range messages {
-				if m.Role == "system" {
-					content = m.Content + "\n\n" + mc.systemPrompt + "\n\n" + msg.Content
-					hasSystem = true
-					break
-				}
+// EstimateMessagesTokens estimates the token count for messages
+func (mc *MessageConverter) EstimateMessagesTokens(messages []types.ChatMessage) int {
+	totalChars := 0
+	for _, msg := range messages {
+		content := extractTextFromContent(msg.Content)
+		totalChars += len(content)
+	}
+	// Rough estimation: 1 token ≈ 4 characters for English, 1 token ≈ 2 characters for Chinese
+	return totalChars / 3
+}
+
+// EstimateTokens estimates the token count for a single text string
+func (mc *MessageConverter) EstimateTokens(text string) int {
+	// Rough estimation: 1 token ≈ 4 characters for English, 1 token ≈ 2 characters for Chinese
+	return len(text) / 3
+}
+
+// ConvertOpenAIToCursorRequest converts OpenAI format request to Cursor format
+func ConvertOpenAIToCursorRequest(req *types.ChatCompletionRequest) (*types.CursorChatRequest, error) {
+	messages, err := convertMessages(req.Messages, req.Tools)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert messages: %w", err)
+	}
+
+	cursorReq := &types.CursorChatRequest{
+		Messages: messages,
+		Model:    req.Model,
+	}
+
+	return cursorReq, nil
+}
+
+// convertMessages converts OpenAI messages to Cursor format with tool injection
+func convertMessages(messages []types.ChatMessage, tools []types.Tool) ([]types.CursorMessage, error) {
+	// CRITICAL: Inject tools into system prompt if function calling is enabled
+	if config.GlobalConfig.Cursor.EnableFunctionCalling && len(tools) > 0 {
+		injectToolsIntoSystemPrompt(messages, tools)
+	}
+
+	cursorMessages := make([]types.CursorMessage, 0, len(messages))
+
+	for _, msg := range messages {
+		// Handle tool_calls in assistant messages
+		if config.GlobalConfig.Cursor.EnableFunctionCalling && msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			toolCallsJSON, err := json.Marshal(msg.ToolCalls)
+			if err != nil {
+				logger.Error("Failed to marshal tool_calls: %v", err)
+				continue
 			}
-			// 如果没有 system 消息,直接在 user 消息前加上提示词
-			if !hasSystem {
-				content = mc.systemPrompt + "\n\n" + msg.Content
-			}
-		}
 
-		parts := []map[string]any{
-			{
-				"type": "text",
-				"text": content,
-			},
-		}
-
-		// 生成消息 ID: 使用会话 ID + 索引,这样同一会话的消息 ID 前缀一致
-		messageID := fmt.Sprintf("msg-%s-%d", baseID, i)
-
-		cursorMsg := map[string]any{
-			"parts": parts,
-			"id":    messageID,
-			"role":  msg.Role,
-		}
-
-		// assistant 消息需要 metadata (如果有的话)
-		if msg.Role == "assistant" {
-			cursorMsg["metadata"] = map[string]any{
-				"usage": map[string]any{
-					"inputTokens":       0,
-					"outputTokens":      mc.EstimateTokens(msg.Content),
-					"totalTokens":       mc.EstimateTokens(msg.Content),
-					"cachedInputTokens": 0,
+			cursorMsg := types.CursorMessage{
+				Role: msg.Role,
+				Parts: []types.CursorMessagePart{
+					{
+						Type: "text",
+						Text: fmt.Sprintf("tool_calls: %s", string(toolCallsJSON)),
+					},
 				},
 			}
+			cursorMessages = append(cursorMessages, cursorMsg)
+			continue
 		}
 
+		// Handle tool response messages
+		if config.GlobalConfig.Cursor.EnableFunctionCalling && msg.Role == "tool" && msg.ToolCallID != "" {
+			cursorMsg := types.CursorMessage{
+				Role: "user",
+				Parts: []types.CursorMessagePart{
+					{
+						Type: "text",
+						Text: fmt.Sprintf("%s: tool_call_id: %s %v", msg.Role, msg.ToolCallID, msg.Content),
+					},
+				},
+			}
+			cursorMessages = append(cursorMessages, cursorMsg)
+			continue
+		}
+
+		// Regular message handling
+		text := extractTextFromContent(msg.Content)
+		if text == "" && msg.Role == "system" {
+			continue
+		}
+
+		cursorMsg := types.CursorMessage{
+			Role: msg.Role,
+			Parts: []types.CursorMessagePart{
+				{
+					Type: "text",
+					Text: text,
+				},
+			},
+		}
 		cursorMessages = append(cursorMessages, cursorMsg)
 	}
 
-	return cursorMessages
+	return cursorMessages, nil
 }
 
-// BuildCursorRequest 构建 Cursor API 请求体
-func (mc *MessageConverter) BuildCursorRequest(messages []types.ChatMessage, model string, conversationID string) string {
-	// 如果提供了 conversationID 就使用它,否则生成新的 ID
-	requestID := conversationID
-	if requestID == "" {
-		requestID = fmt.Sprintf("chatcmpl-%d", time.Now().UnixMilli())
+// extractTextFromContent extracts text from various content types
+func extractTextFromContent(content interface{}) string {
+	if content == nil {
+		return ""
 	}
 
-	// 转换消息数组 - 传入 conversationID 以保持消息 ID 一致性
-	cursorMessages := mc.OpenAIToCursorMessages(messages, requestID)
+	switch v := content.(type) {
+	case string:
+		return v
+	case []interface{}:
+		var text string
+		for _, item := range v {
+			if contentMap, ok := item.(map[string]interface{}); ok {
+				if contentMap["type"] == "text" {
+					if textVal, ok := contentMap["text"].(string); ok {
+						text += textVal
+					}
+				}
+			}
+		}
+		return text
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
 
-	// 构建请求体
-	request := map[string]any{
-		"context":  []map[string]any{{"type": "file", "content": "", "filePath": "/learn/context"}},
-		"model":    model,
-		"id":       requestID,
-		"messages": cursorMessages,
-		"trigger":  "submit-message",
+// injectToolsIntoSystemPrompt injects tool definitions into system message
+// CRITICAL: This must match Python's exact implementation (main.py:232-236)
+func injectToolsIntoSystemPrompt(messages []types.ChatMessage, tools []types.Tool) {
+	if len(tools) == 0 {
+		return
 	}
 
-	// 序列化为 JSON
-	jsonBytes, err := json.Marshal(request)
+	// CRITICAL: Match Python's exact serialization format
+	// Python: tools = [tool.model_dump_json() for tool in request.tools]
+	// This creates a list of JSON strings, not a list of objects
+	toolJSONStrings := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		toolJSON, err := json.Marshal(tool)
+		if err != nil {
+			logger.Error("Failed to marshal single tool to JSON: %v, tool_name: %s", err, tool.Function.Name)
+			continue
+		}
+		toolJSONStrings = append(toolJSONStrings, string(toolJSON))
+	}
+
+	// Now serialize the array of JSON strings
+	toolsArrayJSON, err := json.Marshal(toolJSONStrings)
 	if err != nil {
-		return "{}"
+		logger.Error("Failed to marshal tools array to JSON: %v", err)
+		return
 	}
 
-	return string(jsonBytes)
+	// CRITICAL: Inject TWO separate prompts exactly as Python does
+	// First injection: tool definitions
+	firstPrompt := fmt.Sprintf("你可用的工具: %s", string(toolsArrayJSON))
+	injectSinglePrompt(messages, firstPrompt)
+
+	// Second injection: usage instruction
+	secondPrompt := "不允许使用tool_calls: xxxx调用工具，请使用原生的工具调用方法"
+	injectSinglePrompt(messages, secondPrompt)
+
+	logger.Debug("Tools injected into system prompt, tool_count: %d, first_prompt_preview: %s",
+		len(tools), firstPrompt[:min(100, len(firstPrompt))])
 }
 
-// EstimateTokens 估算 Token 数量
-func (mc *MessageConverter) EstimateTokens(text string) int {
-	return (len(text) + 3) / 4
-}
-
-// EstimateMessagesTokens 估算多条消息的 Token 总数
-func (mc *MessageConverter) EstimateMessagesTokens(messages []types.ChatMessage) int {
-	total := 0
-	for _, msg := range messages {
-		total += mc.EstimateTokens(msg.Content)
+// injectSinglePrompt injects a single prompt into the first system message
+func injectSinglePrompt(messages []types.ChatMessage, prompt string) {
+	// Find system message
+	systemMsgIndex := -1
+	for i, msg := range messages {
+		if msg.Role == "system" {
+			systemMsgIndex = i
+			break
+		}
 	}
-	return total
+
+	if systemMsgIndex == -1 {
+		// No system message exists, create one at the beginning
+		systemMsg := types.ChatMessage{
+			Role:    "system",
+			Content: prompt,
+		}
+		// Prepend to messages slice
+		messages = append([]types.ChatMessage{systemMsg}, messages...)
+	} else {
+		// System message exists, append to its content
+		currentContent := extractTextFromContent(messages[systemMsgIndex].Content)
+		messages[systemMsgIndex].Content = currentContent + "\n" + prompt
+	}
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

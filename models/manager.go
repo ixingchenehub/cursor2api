@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/imroc/req/v3"
@@ -39,10 +40,11 @@ type AntiBotManager struct {
 }
 
 // ManagerStats 管理器统计信息
+// All int64 fields use atomic operations for thread-safety
 type ManagerStats struct {
-	TotalRequests   int64
-	SuccessRequests int64
-	FailedRequests  int64
-	CacheHits       int64
-	LastError       error
+	TotalRequests   atomic.Int64
+	SuccessRequests atomic.Int64
+	FailedRequests  atomic.Int64
+	CacheHits       atomic.Int64
+	LastError       error // Protected by AntiBotManager.mu
 }

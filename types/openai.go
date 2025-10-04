@@ -2,8 +2,11 @@ package types
 
 // ChatMessage OpenAI 消息格式
 type ChatMessage struct {
-	Role    string `json:"role,omitempty"`    // system, user, assistant
-	Content string `json:"content,omitempty"` // 消息内容
+	Role       string     `json:"role,omitempty"`         // system, user, assistant, tool
+	Content    string     `json:"content,omitempty"`      // 消息内容
+	Name       string     `json:"name,omitempty"`         // 函数/工具名称 (function/tool role)
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // 工具调用列表 (assistant role)
+	ToolCallID string     `json:"tool_call_id,omitempty"` // 工具调用ID (tool role)
 }
 
 // ChatCompletionRequest OpenAI 聊天完成请求
@@ -19,6 +22,8 @@ type ChatCompletionRequest struct {
 	FrequencyPenalty float64                `json:"frequency_penalty,omitempty"`
 	Stop             []string               `json:"stop,omitempty"`
 	User             string                 `json:"user,omitempty"`
+	Tools            []Tool                 `json:"tools,omitempty"`           // 可用工具列表
+	ToolChoice       interface{}            `json:"tool_choice,omitempty"`     // 工具选择策略
 	ConversationID   string                 `json:"conversation_id,omitempty"`
 	Extra            map[string]interface{} `json:"-"`
 }

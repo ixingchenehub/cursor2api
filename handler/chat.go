@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/gopkg-dev/cursor2api/types"
+	"cursor2api/types"
 )
 
 // HandleChatCompletions 处理 /v1/chat/completions 请求
@@ -32,16 +32,13 @@ func (h *APIHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reques
 		req.Model = "anthropic/claude-opus-4.1"
 	}
 
-	log.Printf("📩 收到 OpenAI 请求")
+	// Log request metadata only (no sensitive message content)
+	log.Printf("📩 Received OpenAI request")
 	log.Printf("  └─ Model: %s", req.Model)
-	log.Printf("  └─ Messages: %d 条", len(req.Messages))
+	log.Printf("  └─ Messages Count: %d", len(req.Messages))
 	log.Printf("  └─ Stream: %v", req.Stream)
+	log.Printf("  └─ Tools Count: %d", len(req.Tools))
 	log.Printf("  └─ ConversationID: %s", req.ConversationID)
-
-	// 打印消息详情
-	for i, msg := range req.Messages {
-		log.Printf("  └─ Message[%d]: role=%s, content=%s", i, msg.Role, msg.Content)
-	}
 
 	if req.Stream {
 		h.handleStreamingResponse(w, r, req)
